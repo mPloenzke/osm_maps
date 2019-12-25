@@ -1,0 +1,85 @@
+---
+title: "city map"
+author: "Matt Ploenzke"
+date: "11/30/2019"
+output: html_document
+---
+
+Load packages.
+```{r}
+library(tidyverse)
+library(osmdata)
+```
+
+Check available features.
+```{r, eval=FALSE}
+available_features()
+available_tags("residential")
+```
+
+Pull streets data.
+```{r}
+location <- 'Chicago Illinois'
+streets <- getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("motorway", "primary", 
+                            "secondary", "tertiary")) %>%
+  osmdata_sf()
+
+small_streets <- getbb(location)%>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("residential", "living_street",
+                            "unclassified",
+                            "service", "footway")) %>%
+  osmdata_sf()
+```
+
+Pull rivers.
+```{r}
+rivers <- getbb(location)%>%
+  opq()%>%
+  add_osm_feature(key = "waterway") %>%
+  osmdata_sf()
+```
+
+Grab a random point.
+```{r}
+poi <- getbb("Western Springs, Cook County, Illinois") %>%
+  opq()%>%
+  add_osm_feature(key = "building") %>%
+  osmdata_sf() 
+test <- poi$osm_points %>% filter(row_number()==1) %>% mutate(geometry='(-87.900582 41.818970)')
+```
+
+Plot it.
+```{r}
+ggplot() +  
+  geom_sf(data = streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#FF6300",
+          size = .4,
+          alpha = .8) +
+  geom_sf(data = small_streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#ffbe7f",
+          size = .2,
+          alpha = .6) +
+  geom_sf(data = rivers$osm_lines,
+          inherit.aes = FALSE,
+          color = "#7fc0ff",
+          size = .2,
+          alpha = .5) +
+  geom_point(aes(x=-87.900582, y=41.818970),
+          color = "#2DFF00",
+          shape=4, 
+          size = .8,
+          alpha = 1) + 
+  coord_sf(xlim = c(-87.92, -87.5), 
+           ylim = c(41.75, 41.96),
+           expand = FALSE) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "#282828"))
+```
+

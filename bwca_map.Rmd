@@ -1,0 +1,142 @@
+---
+title: "bwca_map"
+author: "Matt Ploenzke"
+date: "12/13/2019"
+output: html_document
+---
+
+Load packages.
+```{r}
+library(tidyverse)
+library(osmdata)
+```
+
+Pull known BWCA lake names.
+```{r}
+library(rvest)
+url_site <- html('https://www.paddleplanner.com/tools/lakedatabase.aspx?area=1')
+all_bwca_lakes <- url_site %>%
+  html_nodes("td:nth-child(1) a") %>%
+  html_text()
+```
+
+Check available features.
+```{r, eval=FALSE}
+available_features()
+available_tags("highway")
+```
+
+Pull lakes data.
+```{r}
+#locations <- c('Saint Louis County, Minnesota, United States')
+locations <- c('Lake County, Minnesota, United States')
+locations <- c('Cook County, Minnesota, United States')
+
+lakes_data <- lapply(locations, function(location) {
+  getbb(location, key='natural') %>%
+    opq()  %>%
+    add_osm_feature(key='natural',value='water') %>%
+    osmdata_sf()
+})
+  
+#lakes_data <- lapply(lakes_data, function(lakess) {
+#  rowws <- gsub(' Lake', '', lakess$osm_polygons$name)
+#  rowws <- gsub(' River','',rowws)
+#  ids <- rownames(lakess$osm_polygons[which(rowws %in% all_bwca_lakes),])
+#  osm_multipolygons(lakess, ids)
+#})
+
+```
+
+Pull rivers.
+```{r}
+rivers <- lapply(locations, function(location) {
+  getbb(location)%>%
+  opq()%>%
+  add_osm_feature(key = "waterway") %>%
+  osmdata_sf()
+})
+```
+
+Pull BWCA border.
+```{r}
+bwca <- opq_osm_id(id='1070324', type='relation') %>% 
+  opq_string() %>%
+  osmdata_sf() 
+```
+
+Test map.
+```{r}
+# test lake id
+test <- opq_osm_id(id='401480', type='relation') %>% 
+  opq_string() %>%
+  osmdata_sf() 
+
+squarebb <- c(-91.8, -90.3443, 47.76, 48.26)
+aa2 <- getbb('Cook County, Minnesota, United States', format_out='polygon')
+colnames(aa2) <- c('v1','v2')
+aa <- aa2 %>% 
+  as_tibble() %>%
+  filter(v1> squarebb[1], v1<squarebb[2], v2>squarebb[3], v2< squarebb[4]) %>%
+  as.matrix()
+lakes_test <- trim_osmdata(lakes_data[[1]],aa, exclude=FALSE)
+rivers_test <- trim_osmdata(rivers[[1]],aa, exclude=FALSE)
+
+p <- ggplot() + 
+  geom_sf(data = bwca$osm_multipolygons,
+          inherit.aes = FALSE,
+          color = "black",
+          fill='grey90',
+          size = .4,
+          alpha = 1) +
+  geom_sf(data=lakes_test$osm_multipolygons,
+                   inherit.aes = FALSE,
+          color = "#7fc0ff",
+          fill="#7fc0ff",
+          size = .5,
+          alpha = .1) + 
+  geom_sf(data=lakes_test$osm_polygons,
+                   inherit.aes = FALSE,
+          color = "#7fc0ff",
+          fill="#7fc0ff",
+          size = .5,
+          alpha = .1) + 
+  geom_sf(data = rivers_test$osm_lines,
+          inherit.aes = FALSE,
+          color = "#7fc0ff",
+          fill="#7fc0ff",
+          size = .2,
+          alpha = 1) +
+    coord_sf(xlim = c(-92.5, -90), 
+           ylim = c(47.76, 49),
+           expand = FALSE) 
+ggsave('map.png',width=16,height=8, units='in')
+```
+
+Filter out lakes not within the BWCA boundary.
+```{r}
+library (sf)
+bb <- bwca$osm_lines %>%
+  as_tibble() %>%
+  separate(geometry, into=c('v1','v2'),sep=',') %>%
+  mutate(v1 = gsub('c\\(','',v1)) %>%
+  mutate(v2 = gsub('\\)','',v2)) %>%
+  mutate(v2 = gsub(' ','',v2)) %>%
+  select(v1, v2) %>% 
+  mutate_all(as.numeric) %>%
+  as.matrix()
+lakes_trimmed <- lapply(lakes_data, function(lake_dat) {
+  trim_osmdata(lake_dat,bb)
+})
+rivers_trimmed <- lapply(rivers, function(river_dat) {
+  trim_osmdata(river_dat,bb)
+})
+```
+
+Grab background.
+```{r}
+library(ggmap)
+base_map <- get_map(location = c(lon=-90,lat=48),maptype = "toner-background")
+ggmap(base_map)
+```
+
