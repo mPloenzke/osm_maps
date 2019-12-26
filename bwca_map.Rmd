@@ -1,7 +1,7 @@
 ---
 title: "bwca_map"
 author: "Matt Ploenzke"
-date: "12/13/2019"
+date: "1/1/2020"
 output: html_document
 ---
 
@@ -9,10 +9,11 @@ Load packages.
 ```{r}
 library(tidyverse)
 library(osmdata)
+library(ggrepel)
 ```
 
 Pull known BWCA lake names.
-```{r}
+```{r, eval=FALSE}
 library(rvest)
 url_site <- html('https://www.paddleplanner.com/tools/lakedatabase.aspx?area=1')
 all_bwca_lakes <- url_site %>%
@@ -28,9 +29,9 @@ available_tags("highway")
 
 Pull lakes data.
 ```{r}
-#locations <- c('Saint Louis County, Minnesota, United States')
-locations <- c('Lake County, Minnesota, United States')
-locations <- c('Cook County, Minnesota, United States')
+locations <- c('Cook County, Minnesota, United States',
+               'Lake County, Minnesota, United States',
+               'Saint Louis County, Minnesota, United States')
 
 lakes_data <- lapply(locations, function(location) {
   getbb(location, key='natural') %>%
@@ -38,14 +39,6 @@ lakes_data <- lapply(locations, function(location) {
     add_osm_feature(key='natural',value='water') %>%
     osmdata_sf()
 })
-  
-#lakes_data <- lapply(lakes_data, function(lakess) {
-#  rowws <- gsub(' Lake', '', lakess$osm_polygons$name)
-#  rowws <- gsub(' River','',rowws)
-#  ids <- rownames(lakess$osm_polygons[which(rowws %in% all_bwca_lakes),])
-#  osm_multipolygons(lakess, ids)
-#})
-
 ```
 
 Pull rivers.
@@ -65,78 +58,189 @@ bwca <- opq_osm_id(id='1070324', type='relation') %>%
   osmdata_sf() 
 ```
 
-Test map.
+Grab international border
 ```{r}
-# test lake id
-test <- opq_osm_id(id='401480', type='relation') %>% 
+canada_border <- opq_osm_id(id='1428125', type='relation') %>% 
   opq_string() %>%
   osmdata_sf() 
+```
 
-squarebb <- c(-91.8, -90.3443, 47.76, 48.26)
-aa2 <- getbb('Cook County, Minnesota, United States', format_out='polygon')
-colnames(aa2) <- c('v1','v2')
-aa <- aa2 %>% 
-  as_tibble() %>%
-  filter(v1> squarebb[1], v1<squarebb[2], v2>squarebb[3], v2< squarebb[4]) %>%
-  as.matrix()
-lakes_test <- trim_osmdata(lakes_data[[1]],aa, exclude=FALSE)
-rivers_test <- trim_osmdata(rivers[[1]],aa, exclude=FALSE)
+Grab roads.
+```{r}
+primary_streets <- lapply(locations, function(location) {
+  getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("motorway", "trunk","primary")) %>%
+  osmdata_sf()
+})
+secondary_streets <- lapply(locations, function(location) {
+  getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("secondary","tertiary")) %>%
+  osmdata_sf()
+})
+residential_streets <- lapply(locations, function(location) {
+  getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("residential")) %>%
+  osmdata_sf()
+})
+```
 
-p <- ggplot() + 
+Trim roads.
+```{r}
+mnbb <- getbb('Minnesota',format_out='polygon')
+primary_streets <- lapply(primary_streets, function(location) {trim_osmdata(location,mnbb, exclude=FALSE)})
+secondary_streets <- lapply(secondary_streets, function(location) {trim_osmdata(location,mnbb, exclude=FALSE)})
+residential_streets <- lapply(residential_streets, function(location) {trim_osmdata(location,mnbb, exclude=FALSE)})
+```
+
+Add cities of interest.
+```{r}
+ely <- opq_osm_id(id='137427', type='relation') %>% 
+  opq_string() %>%
+  osmdata_sf() 
+grandmarais <- opq_osm_id(id='137679', type='relation') %>% 
+  opq_string() %>%
+  osmdata_sf() 
+tower <- opq_osm_id(id='136850', type='relation') %>% 
+  opq_string() %>%
+  osmdata_sf() 
+babbitt <- opq_osm_id(id='136657', type='relation') %>% 
+  opq_string() %>%
+  osmdata_sf() 
+```
+
+Grab background from google maps API.
+```{r, eval=FALSE}
+library(ggmap)
+ggmap_show_api_key()
+base_map <- get_map(location = c(lon=-91.5,lat=48),maptype = "satellite", zoom=8)
+ggmap(base_map)
+ggmap_hide_api_key()
+```
+
+Plot it.
+```{r}
+p <- ggplot()
+for (lake in 1:length(lakes_data)) {
+  p <- p +
+    geom_sf(data=lakes_data[[lake]]$osm_multipolygons,
+            inherit.aes = FALSE,
+            color = "#002c57",
+            fill="#004a92",
+            size = .5,
+            alpha = 1) + 
+    geom_sf(data=lakes_data[[lake]]$osm_polygons,
+            inherit.aes = FALSE,
+            color = "#002c57",
+            fill="#004a92",
+            size = .5,
+            alpha = 1) +
+    geom_sf(data = rivers[[lake]]$osm_lines,
+            inherit.aes = FALSE,
+            color = "#004a92",
+            fill="#004a92",
+            size = .2,
+            alpha = 1) +
+    geom_sf(data=primary_streets[[lake]]$osm_lines,
+            inherit.aes = FALSE,
+            color = "#FF6300",
+            size = .3,
+            alpha = .8) +
+     geom_sf(data=secondary_streets[[lake]]$osm_lines,
+            inherit.aes = FALSE,
+            color = "#FF6300",
+            size = .2,
+            alpha = .8) +
+    geom_sf(data=residential_streets[[lake]]$osm_lines,
+            inherit.aes = FALSE,
+            color = "#FF8232",
+            size = .1,
+            alpha = .4)
+}
+p <- p +
   geom_sf(data = bwca$osm_multipolygons,
           inherit.aes = FALSE,
-          color = "black",
-          fill='grey90',
-          size = .4,
-          alpha = 1) +
-  geom_sf(data=lakes_test$osm_multipolygons,
-                   inherit.aes = FALSE,
-          color = "#7fc0ff",
-          fill="#7fc0ff",
-          size = .5,
-          alpha = .1) + 
-  geom_sf(data=lakes_test$osm_polygons,
-                   inherit.aes = FALSE,
-          color = "#7fc0ff",
-          fill="#7fc0ff",
-          size = .5,
-          alpha = .1) + 
-  geom_sf(data = rivers_test$osm_lines,
+          color = "forestgreen",
+          fill=NA,
+          size = .8,
+          alpha = 1) + 
+  geom_sf(data = canada_border$osm_multipolygons,
           inherit.aes = FALSE,
-          color = "#7fc0ff",
-          fill="#7fc0ff",
-          size = .2,
+          lty = 'dotted',
+          color = "grey50",
+          fill=NA,
+          size = .8,
           alpha = 1) +
+  geom_sf(data = ely$osm_multipolygons,
+          inherit.aes = FALSE,
+          fill = "#FF6300",
+          color=NA,
+          size = .4,
+          alpha = .4) +
+  geom_sf(data = grandmarais$osm_multipolygons,
+          inherit.aes = FALSE,
+          fill = "#FF6300",
+          color=NA,
+          size = .4,
+          alpha = .4) +
+  geom_sf(data = tower$osm_multipolygons,
+          inherit.aes = FALSE,
+          fill = "#FF6300",
+          color=NA,
+          size = .4,
+          alpha = .4) +
     coord_sf(xlim = c(-92.5, -90), 
-           ylim = c(47.76, 49),
-           expand = FALSE) 
-ggsave('map.png',width=16,height=8, units='in')
+           ylim = c(47.7, 48.4),
+           expand = FALSE) +
+  annotate("rect", xmin = -91.75, xmax = -90.75, ymin = 48.325, ymax=48.375, color='cornsilk', fill='#005000') +
+  annotate("text", x = -91.25, y = 48.35, label = "Boundary Waters Canoe Area Wilderness", size=8, 
+           color='cornsilk', family='Times',fontface='italic') +
+  annotate("text", x = -92.325, y = 47.71, label = "Data from: Open Street Maps", size=4, 
+           color='cornsilk', family='Times',fontface='italic') +
+  annotate("text", x = -90.175, y = 47.71, label = "Created by: Matt Ploenzke", size=4, 
+           color='cornsilk', family='Times',fontface='italic') +
+  geom_segment(aes(x=-90.19, xend = -90.19, y=48.25, yend = 48.35), 
+               arrow = arrow(angle=35, length = unit(0.2,"cm"), type='closed', ends='last'), 
+               color='grey70') +
+  geom_segment(aes(x=-90.19, xend=-90.215, y=48.25,yend=48.235),color='grey70') +
+  geom_segment(aes(x=-90.19, xend=-90.165, y=48.25,yend=48.235),color='grey70') +
+  geom_segment(aes(x=-90.19, xend=-90.215, y=48.265,yend=48.25),color='grey70') +
+  geom_segment(aes(x=-90.19, xend=-90.165, y=48.265,yend=48.25),color='grey70') +
+  geom_segment(aes(x=-90.125, xend = -90.25, y=48.3, yend = 48.3), 
+               arrow = arrow(angle=35, length = unit(0.2,"cm"), type='closed', ends='first'), 
+               color='grey70') +
+  geom_segment(aes(x=-90.275, xend=-90.25, y=48.285,yend=48.3),color='grey70') +
+  geom_segment(aes(x=-90.275, xend=-90.25, y=48.315,yend=48.3),color='grey70') +
+  geom_segment(aes(x=-90.25, xend=-90.225, y=48.285,yend=48.3),color='grey70') +
+  geom_segment(aes(x=-90.25, xend=-90.225, y=48.315,yend=48.3),color='grey70') +
+  annotate("text", x = -90.1875, y = 48.375, label = "N", size=6, 
+           color='grey70', family='Times',fontface='italic') +
+  annotate("text", x = -90.1, y = 48.3, label = "E", size=6, 
+           color='grey70', family='Times',fontface='italic') +
+  geom_point(aes(x=-92.099086, y=48.12303), size=2, color='red') + 
+  geom_label_repel(aes(x=-92.099086, y=48.12303, label='16'), size=3, box.padding=.5,min.segment.length=0,
+           color='red', family='Times',fontface='italic',fill="#002900") + 
+  geom_point(aes(x=-90.644793, y=47.92606), size=2, color='red') + 
+  geom_label_repel(aes(x=-90.644793, y=47.92606, label='41'), size=3, box.padding=.5,min.segment.length=0,
+           color='red', family='Times',fontface='italic',fill="#002900") + 
+  geom_point(aes(x=-90.885782,y=47.86987), size=2, color='red') + 
+  geom_label_repel(aes(x=-90.885782,y=47.86987, label='38'), size=3, box.padding=.5,min.segment.length=0,
+           color='red', family='Times',fontface='italic',fill="#002900") + 
+  geom_point(aes(x=-90.532647,y=48.04399), size=2, color='red') + 
+  geom_label_repel(aes(x=-90.532647,y=48.04399, label='48'), size=3, box.padding=.5,min.segment.length=0,
+           color='red', family='Times',fontface='italic',fill="#002900") + 
+    geom_point(aes(x=-91.499687,y=47.9877), size=2, color='red') + 
+  geom_label_repel(aes(x=-91.499687,y=47.9877, label='25'), size=3, box.padding=.5,min.segment.length=0,
+           color='red', family='Times',fontface='italic',fill="#002900") + 
+  theme_void() +
+  theme(panel.background = element_rect(fill = "#002900",colour = "#002900"))
+ggsave('map.png',width=16,height=6.705, units='in')
 ```
 
-Filter out lakes not within the BWCA boundary.
-```{r}
-library (sf)
-bb <- bwca$osm_lines %>%
-  as_tibble() %>%
-  separate(geometry, into=c('v1','v2'),sep=',') %>%
-  mutate(v1 = gsub('c\\(','',v1)) %>%
-  mutate(v2 = gsub('\\)','',v2)) %>%
-  mutate(v2 = gsub(' ','',v2)) %>%
-  select(v1, v2) %>% 
-  mutate_all(as.numeric) %>%
-  as.matrix()
-lakes_trimmed <- lapply(lakes_data, function(lake_dat) {
-  trim_osmdata(lake_dat,bb)
-})
-rivers_trimmed <- lapply(rivers, function(river_dat) {
-  trim_osmdata(river_dat,bb)
-})
-```
-
-Grab background.
-```{r}
-library(ggmap)
-base_map <- get_map(location = c(lon=-90,lat=48),maptype = "toner-background")
-ggmap(base_map)
-```
-
+remove roads in canada
+add entry points
