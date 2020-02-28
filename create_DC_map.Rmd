@@ -1,0 +1,80 @@
+---
+title: "DC city map"
+author: "Matt Ploenzke"
+date: "2/28/2020"
+output: html_document
+---
+
+Load packages.
+```{r}
+library(tidyverse)
+library(osmdata)
+```
+
+Check available features.
+```{r, eval=FALSE}
+available_features()
+available_tags("residential")
+```
+
+Pull streets data.
+```{r}
+location <- 'Washington DC'
+streets <- getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("motorway", "primary", 
+                            "secondary", "tertiary")) %>%
+  osmdata_sf()
+
+small_streets <- getbb(location)%>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("residential", "living_street",
+                            "unclassified",
+                            "service", "footway")) %>%
+  osmdata_sf()
+```
+
+Pull rivers.
+```{r}
+rivers <- getbb(location)%>%
+  opq()%>%
+  add_osm_feature(key = "waterway") %>%
+  osmdata_sf()
+```
+
+Plot it.
+```{r}
+p <- ggplot() +  
+  geom_sf(data = streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#FF6300",
+          size = .4,
+          alpha = .8) +
+  #geom_sf(data = small_streets$osm_lines,
+  #        inherit.aes = FALSE,
+  #        color = "#ffbe7f",
+  #        size = .2,
+  #        alpha = .6) +
+  geom_sf(data = rivers$osm_lines,
+          inherit.aes = FALSE,
+          color = "#7fc0ff",
+          size = .2,
+          alpha = .5) +
+  geom_point(aes(x= -77.034957,y=38.889671), # example single point
+          color = "#2DFF00",
+          shape=4, 
+          size = .8,
+          alpha = 1) + 
+  geom_polygon(aes(x=c(-77.050157,-77.05,-77.03,-77.033662),y=c(38.93,38.88,38.88,38.93)), # example region for boundaries
+               alpha=.2, 
+               color='grey',fill='yellow') + 
+  coord_sf(xlim = c(-77.2, -76.9), 
+           ylim = c(38.735, 39.05),
+           expand = FALSE) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "#282828"))
+ggsave('test.png',p,width=12,height=12,units='in')
+```
+

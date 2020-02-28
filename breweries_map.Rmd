@@ -1,0 +1,119 @@
+---
+title: "Breweries map"
+author: "Matt Ploenzke"
+date: "1/23/2020"
+output: html_document
+---
+
+Load packages.
+```{r}
+library(tidyverse)
+library(osmdata)
+```
+
+Check available features.
+```{r, eval=FALSE}
+available_features()
+available_tags("residential")
+```
+
+Pull streets data.
+```{r}
+location <- 'Munich Germany'
+biergartens <- getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "biergarten") %>%
+  osmdata_sf()
+
+breweries <- getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "craft",
+                  value = 'brewery') %>%
+  osmdata_sf()
+
+microbreweries <- getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "microbrewery") %>%
+  osmdata_sf()
+
+streets <- getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "highway", 
+                  value = c("motorway", "primary")) %>%
+  osmdata_sf()
+
+transit <- getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "railway",
+                  value = 'subway') %>%
+  osmdata_sf()
+
+transit_stations <- getbb(location) %>%
+  opq()%>%
+  add_osm_feature(key = "railway",
+                  value = 'stop') %>%
+  osmdata_sf()
+```
+
+Pull rivers.
+```{r}
+rivers <- getbb(location)%>%
+  opq()%>%
+  add_osm_feature(key = "waterway") %>%
+  osmdata_sf()
+```
+
+Plot it.
+```{r}
+ggplot() +  
+  geom_sf(data = streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#000000",
+          size = .4,
+          alpha = .8) +
+  geom_sf(data = rivers$osm_lines,
+          inherit.aes = FALSE,
+          color = "#7fc0ff",
+          size = .4,
+          alpha = .8) +
+  geom_sf(data = transit$osm_lines,
+          inherit.aes = FALSE,
+          color = "#A900FF",
+          size = .4,
+          alpha = .8) + 
+  geom_sf(data = transit_stations$osm_points,
+          inherit.aes = FALSE,
+          color = "#A900FF",
+          shape=21,
+          size = 1,
+          alpha = 1) +
+  geom_sf(data = breweries$osm_points,
+          inherit.aes = FALSE,
+          color = "#FF0000",
+          shape=21,
+          size = 1,
+          alpha = 1) +
+  geom_sf(data = microbreweries$osm_points,
+          inherit.aes = FALSE,
+          color = "#FF5700",
+          shape=21,
+          size = 1,
+          alpha = 1) +
+  geom_sf(data = biergartens$osm_points,
+          inherit.aes = FALSE,
+          color = "#FF5700",
+          shape=1,
+          size = .5,
+          alpha = .5) +
+  #geom_point(aes(x=-87.900582, y=41.818970),
+  #        color = "#2DFF00",
+  #        shape=4, 
+  #        size = .8,
+  #        alpha = 1) + 
+  coord_sf(xlim = c(11.35, 11.75), 
+           ylim = c(48.1, 48.25),
+           expand = FALSE) +
+  theme_void() +
+  theme(plot.background = element_rect(fill = "#FFFFFF"))
+```
+
