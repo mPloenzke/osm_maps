@@ -17,9 +17,15 @@ available_features()
 available_tags("residential")
 ```
 
-Pull streets data.
+Pull streets data based on city name.
 ```{r}
-location <- 'Munich Germany'
+#location <- 'Munich Germany'
+location <- 'Centre County, Pennsylvania'
+bars <- getbb(location) %>%
+  opq(timeout=50)%>%
+  add_osm_feature(key = "amenity",value='bar') %>%
+  osmdata_sf()
+
 biergartens <- getbb(location) %>%
   opq()%>%
   add_osm_feature(key = "biergarten") %>%
@@ -37,9 +43,17 @@ microbreweries <- getbb(location) %>%
   osmdata_sf()
 
 streets <- getbb(location) %>%
+  opq() %>%
+  add_osm_feature(key = "highway", 
+                  value = c("motorway", "primary","secondary","tertiary")) %>%
+  osmdata_sf()
+
+streets_small <- getbb(location)%>%
   opq()%>%
   add_osm_feature(key = "highway", 
-                  value = c("motorway", "primary")) %>%
+                  value = c("residential", "living_street",
+                            "unclassified",
+                            "service", "footway")) %>%
   osmdata_sf()
 
 transit <- getbb(location) %>%
@@ -48,72 +62,211 @@ transit <- getbb(location) %>%
                   value = 'subway') %>%
   osmdata_sf()
 
-transit_stations <- getbb(location) %>%
-  opq()%>%
-  add_osm_feature(key = "railway",
-                  value = 'stop') %>%
-  osmdata_sf()
-```
-
-Pull rivers.
-```{r}
-rivers <- getbb(location)%>%
-  opq()%>%
+rivers <- getbb(location) %>%
+  opq() %>%
   add_osm_feature(key = "waterway") %>%
   osmdata_sf()
+
+lakes <- getbb(location, key='natural') %>%
+    opq() %>%
+    add_osm_feature(key = "natural", value='water') %>%
+    osmdata_sf()
+```
+
+Pull streets data based on bounding box.
+```{r}
+location <- 'Hamburg Germany'
+bbox <- c(9.892,53.52,10.1,53.5901) # hamburg
+biergartens <- opq(bbox)%>%
+  add_osm_feature(key = "biergarten") %>%
+  osmdata_sf()
+
+breweries <- opq(bbox)%>%
+  add_osm_feature(key = "craft",
+                  value = 'brewery') %>%
+  osmdata_sf()
+
+microbreweries <- opq(bbox)%>%
+  add_osm_feature(key = "microbrewery") %>%
+  osmdata_sf()
+
+streets <-  opq(bbox=bbox) %>%
+  add_osm_feature(key = "highway", 
+                  value = c("motorway", "primary","secondary","tertiary")) %>%
+  osmdata_sf()
+
+streets_small <- opq(bbox)%>%
+  add_osm_feature(key = "highway", 
+                  value = c("residential", "living_street",
+                            "unclassified",
+                            "service", "footway")) %>%
+  osmdata_sf()
+
+transit <- opq(bbox)%>%
+  add_osm_feature(key = "railway",
+                  value = 'subway') %>%
+  osmdata_sf()
+
+rivers <- opq(bbox) %>%
+  add_osm_feature(key = "waterway") %>%
+  osmdata_sf()
+
+lakes <- opq(bbox) %>%
+    add_osm_feature(key = "natural", value='water') %>%
+    osmdata_sf()
+```
+
+Format breweries.
+```{r}
+breweries_tibble <- breweries$osm_points %>%
+  as_tibble() %>%
+  select(name, geometry) %>%
+  separate(geometry, into=c('long','lat'), sep=', ') %>%
+  mutate(lat = as.numeric(gsub(')','',lat)),
+         long = as.numeric(gsub('c\\(','',long))) %>%
+  na.omit()
+microbreweries_tibble <- microbreweries$osm_points %>%
+  as_tibble() %>%
+  select(name, geometry) %>%
+  separate(geometry, into=c('long','lat'), sep=', ') %>%
+  mutate(lat = as.numeric(gsub(')','',lat)),
+         long = as.numeric(gsub("c\\(",'',long))) %>%
+  na.omit()
+biergartens_tibble <- biergartens$osm_points %>%
+  as_tibble() %>%
+  select(name, geometry) %>%
+  separate(geometry, into=c('long','lat'), sep=', ') %>%
+  mutate(lat = as.numeric(gsub(')','',lat)),
+         long = as.numeric(gsub('c\\(','',long))) %>%
+  na.omit() %>% 
+  filter(name != "McDonald's")
+```
+
+Format bars.
+```{r}
+bars_tibble <- bars$osm_points %>%
+  as_tibble() %>%
+  select(name, geometry) %>%
+  separate(geometry, into=c('long','lat'), sep=', ') %>%
+  mutate(lat = as.numeric(gsub(')','',lat)),
+         long = as.numeric(gsub('c\\(','',long)))
 ```
 
 Plot it.
 ```{r}
-ggplot() +  
-  geom_sf(data = streets$osm_lines,
-          inherit.aes = FALSE,
-          color = "#000000",
-          size = .4,
-          alpha = .8) +
+p <- ggplot() +  
   geom_sf(data = rivers$osm_lines,
           inherit.aes = FALSE,
-          color = "#7fc0ff",
+          color = "#002c57",
+          size = .5,
+          alpha = .2) +
+  geom_sf(data=lakes$osm_multipolygons,
+            inherit.aes = FALSE,
+            color = "#002c57",
+            fill="#004a92",
+            size = .5,
+            alpha = .1) + 
+  geom_sf(data=lakes$osm_polygons,
+            inherit.aes = FALSE,
+            color = "#002c57",
+            fill="#004a92",
+            size = .5,
+            alpha = .25) +
+  geom_sf(data = streets$osm_lines,
+          inherit.aes = FALSE,
+          color = "#ffbe7f",
           size = .4,
           alpha = .8) +
+   geom_sf(data = streets_small$osm_lines,
+          inherit.aes = FALSE,
+          color = "#ffbe7f",
+          size = .1,
+          alpha = .5) +
   geom_sf(data = transit$osm_lines,
           inherit.aes = FALSE,
-          color = "#A900FF",
+          color = "#EE210B",
           size = .4,
-          alpha = .8) + 
-  geom_sf(data = transit_stations$osm_points,
-          inherit.aes = FALSE,
-          color = "#A900FF",
-          shape=21,
-          size = 1,
-          alpha = 1) +
-  geom_sf(data = breweries$osm_points,
-          inherit.aes = FALSE,
-          color = "#FF0000",
-          shape=21,
-          size = 1,
-          alpha = 1) +
-  geom_sf(data = microbreweries$osm_points,
-          inherit.aes = FALSE,
-          color = "#FF5700",
-          shape=21,
-          size = 1,
-          alpha = 1) +
-  geom_sf(data = biergartens$osm_points,
-          inherit.aes = FALSE,
-          color = "#FF5700",
-          shape=1,
-          size = .5,
-          alpha = .5) +
-  #geom_point(aes(x=-87.900582, y=41.818970),
-  #        color = "#2DFF00",
-  #        shape=4, 
-  #        size = .8,
-  #        alpha = 1) + 
-  coord_sf(xlim = c(11.35, 11.75), 
-           ylim = c(48.1, 48.25),
-           expand = FALSE) +
+          alpha = .7) +
   theme_void() +
-  theme(plot.background = element_rect(fill = "#FFFFFF"))
+  theme(plot.background = element_rect(fill = "#282828", color='#282828'),
+        panel.background = element_rect(fill = "#282828", color='#282828'))
+if (location == 'Munich Germany') {
+  p <- p + 
+    geom_jitter(data = breweries_tibble,aes(x=long,y=lat),
+          inherit.aes = FALSE,
+          fill = "#0ED262",
+          color = 'black',
+          shape=21,
+          size = 4,
+          alpha = .65) +
+    geom_jitter(data = microbreweries_tibble,aes(x=long,y=lat),
+          inherit.aes = FALSE,
+          fill = "#0ED262",
+          color = 'black',
+          shape=21,
+          size = 4,
+          alpha = .65) + 
+    annotate("rect", xmin = 11.4825, xmax = 11.54, ymin = 48.101, ymax=48.106, 
+             color='cornsilk', fill='#282828',alpha=1) + 
+    annotate("text", x = 11.5115, y = 48.1035, label = "Brauereien in München", size=8,
+           color='cornsilk', family='Times',fontface='italic') +
+    coord_sf(xlim = c(11.44, 11.66), 
+           ylim = c(48.0898, 48.173),
+           expand = FALSE)
+  p1 <- p
+} else if  (location == 'Hamburg Germany') {
+  p <- p + 
+    geom_jitter(data = breweries_tibble,aes(x=long,y=lat),
+          inherit.aes = FALSE,
+          fill = "#0ED262",
+          color = 'black',
+          shape=21,
+          size = 4,
+          alpha = .65) +
+    geom_jitter(data = microbreweries_tibble,aes(x=long,y=lat),
+          inherit.aes = FALSE,
+          fill = "#0ED262",
+          color = 'black',
+          shape=21,
+          size = 4,
+          alpha = .65) + 
+    annotate("rect", xmin = 9.97, xmax = 10.03, ymin = 53.53, ymax=53.535, 
+             color='cornsilk', fill='#282828',alpha=1) +
+    annotate("text", x = 10, y = 53.5325, label = "Brauereien in Hamburg", size=8,
+             color='cornsilk', family='Times',fontface='italic') + 
+    coord_sf(xlim = c(min(bbox[c(1,3)]), max(bbox[c(1,3)])), 
+           ylim = c(min(bbox[c(2,4)]), max(bbox[c(2,4)])),
+           expand = FALSE) 
+  p2 <- p
+} else if  (location == 'Centre County, Pennsylvania') {
+  p <- p + 
+    geom_jitter(data = bars_tibble,aes(x=long,y=lat),
+          inherit.aes = FALSE,
+          fill = "#1F2AA9",
+          color = 'black',
+          shape=21,
+          size = 4,
+          alpha = .65) +
+    annotate("rect", xmin = -77.97, xmax = -77.89, ymin = 40.8495, ymax=40.8551, 
+             color='cornsilk', fill='#282828',alpha=1) +
+    annotate("text", x = -77.93, y = 40.8525, label = "Pubs of State College", size=8, 
+             color='cornsilk', family='Times',fontface='italic') +
+    coord_sf(xlim = c(-77.98, -77.719), 
+           ylim = c(40.75, 40.862),
+           expand = FALSE)
+  p3 <- p
+}
+ggsave(plot=p, filename=file.path(paste(gsub(' ','_', location),'.png',sep='')),width=12,height=6.8,units='in')
+saveRDS(p,file=file.path(paste(gsub(' ','_', location),'.RDS',sep='')))
+```
+
+Combine.
+```{r}
+p1 <- readRDS('Munich_Germany.RDS')
+p2 <- readRDS('Centre_County,_Pennsylvania.RDS')
+p3 <- readRDS('Hamburg_Germany.RDS')
+library(cowplot)
+pp <- plot_grid(p1,p2,p3,ncol=1)
+ggsave(plot=pp, filename='fig.jpg', width=12,height=20.4,units='in')
 ```
 
