@@ -1,0 +1,182 @@
+---
+title: "city map"
+author: "Matt Ploenzke"
+date: "11/30/2019"
+output: html_document
+---
+
+Load packages.
+```{r}
+library(tidyverse)
+library(osmdata)
+library(trackeR)
+library(ggrepel)
+library(cowplot)
+library(latex2exp)
+```
+
+Read in .tcx files.
+```{r}
+routes <- tibble()
+for (rte in list.files('tcx',full.names=TRUE)) {
+  routes <- readTCX(file = rte, timezone = "EST") %>%
+    as_tibble() %>%
+    select(time, latitude, longitude, altitude, distance, speed) %>%
+    mutate(file = rte) %>%
+    bind_rows(routes)
+}
+routes <- routes %>% 
+  arrange(time) %>%
+  mutate(rte_id = group_indices(.,file))
+routes <- routes %>% 
+  filter(rte_id == max(rte_id), speed>0) %>%
+  mutate(altitude = altitude*3.2808,
+         altitude = altitude-first(altitude),
+         distance = distance*0.00062137,
+         speed = speed*2.2369362920544)
+```
+
+Interactive map.
+```{r, eval=FALSE}
+runTr0 <- trackeRdata(route)
+leaflet_route(runTr0, session = 1)
+```
+
+Pull features.
+```{r}
+locations <- c('Cambridge Massachusetts',
+               'Boston Massachusetts',
+               'Medford Massachusetts',
+               'Bedford Massachusetts',
+               'Lexington Massachusetts',
+               'Winchester Massachusetts',
+               'Woburn Massachusetts',
+               'Reading Massachusetts',
+               'Wilmington Massachusetts',
+               'Lincoln Massachusetts',
+               'Stoneham Massachusetts',
+               'Belmont Massachusetts',
+               'Concord Massachusetts',
+               'Burlington Massachusetts',
+               'Arlington Massachusetts')
+locations <- c('Middlesex County Massachusetts',
+               'Suffolk County Massachusetts')
+
+streets <- lapply(locations, function(location) {
+  getbb(location) %>%
+    opq(timeout = 150) %>%
+    add_osm_feature(key = "highway", 
+                    value = c("motorway", "primary", "secondary","tertiary")) %>%
+  osmdata_sf()
+})
+
+rivers <- lapply(locations, function(location) {
+  getbb(location)%>%
+    opq(timeout = 150) %>%
+    add_osm_feature(key = "waterway") %>%
+    osmdata_sf()
+})
+
+lakes <- lapply(locations, function(location) {
+  getbb(location, key='natural')%>%
+    opq(timeout = 150) %>%
+    add_osm_feature(key = "natural", value='water') %>%
+    osmdata_sf()
+})
+```
+
+Plot it.
+```{r}
+p <- ggplot()
+for (ii in 1:length(locations)) {
+  p <- p +
+    geom_sf(data = streets[[ii]]$osm_lines,
+          inherit.aes = FALSE,
+          #color = "#FF6300",
+          #color = "#ffbe7f",
+          color='grey',
+          size = .2,
+          alpha = .25) +
+    geom_sf(data = rivers[[ii]]$osm_lines,
+          inherit.aes = FALSE,
+          color = "#7fc0ff",
+          size = .5,
+          alpha = .5) +
+    geom_sf(data=lakes[[ii]]$osm_multipolygons,
+            inherit.aes = FALSE,
+            color = "#7fc0ff",
+            fill="#7fc0ff",
+            size = .5,
+            alpha = .5) + 
+    geom_sf(data=lakes[[ii]]$osm_polygons,
+            inherit.aes = FALSE,
+            color = "#7fc0ff",
+            fill="#7fc0ff",
+            size = .5,
+            alpha = .5)
+}
+dir.create('figs',showWarnings = FALSE)
+for (measure in seq(1,nrow(routes),by=1)) {
+  timet <- routes %>% select(time) %>% filter(row_number()==measure) %>% pull()
+  routes2 <- routes %>% 
+    filter(time <= timet) %>% 
+    mutate(size = (latitude-lag(altitude))/lag(altitude),
+           label = case_when( row_number()==measure ~ paste(round(speed,digits=1), ' mph \n',
+                                                            round(distance,digits=2), 'miles'), TRUE ~ '')) %>%
+    replace_na(list(size=0)) %>%
+    mutate(size = (size+lag(size,n=1L,default=0)+lag(size,n=2L,default=0))/3)
+  if (measure > 1) {
+    p2 <- p +
+      geom_path(data=routes2 %>% filter(row_number()!=measure), 
+               aes(x=longitude,y=latitude, color=speed), lwd=1, alpha=.75) 
+  } else {
+    p2 <- p
+  }
+   p2 <- p2 + 
+     geom_point(data=routes2 %>% filter(row_number()==measure) %>% mutate(size=pmin(pmax(size,-5),5)), 
+               aes(x=longitude,y=latitude, fill=speed, size=size), shape=21, color='black',alpha=.9) + 
+    scale_fill_gradient(low = "yellow", high = "red4", na.value = NA,limits=c(0,max(routes$speed)+5)) +
+    scale_color_gradient(low = "yellow", high = "red4", na.value = NA,limits=c(0,max(routes$speed)+5)) +
+    scale_size_continuous(limits=c(-5,5),range=c(1,8)) +
+    coord_sf(xlim = c(min(routes$longitude)-.025,max(routes$longitude)+.025), 
+             ylim = c(min(routes$latitude)-.025, max(routes$latitude)+.025),
+             expand = FALSE) +
+      #geom_label_repel(data=routes2, aes(x=longitude,y=latitude, label=label),segment.alpha = 0,point.padding = 1.1) +
+      theme_void() +
+      theme(panel.background = element_rect(fill = "#002900",colour = "#002900"),
+            legend.position = c(-71.2,42.4))
+   p3 <- routes2 %>%
+     ggplot(aes(x=distance, y=speed)) + 
+     geom_hline(aes(yintercept=0),lty=1, alpha=.5) + 
+     geom_hline(aes(yintercept=mean(routes$speed)),lty=2, alpha=.5) +
+     geom_hline(aes(yintercept=max(routes$speed)),lty=1, alpha=.5) +
+     geom_line() + 
+     geom_point(data=routes2 %>% filter(distance==max(distance)),aes(fill=speed),shape=21,color='red') +
+     theme_bw() + 
+     theme(panel.grid = element_blank(),
+           legend.position='none',
+           plot.background = element_rect(fill = "grey70",colour = "grey70"),
+           panel.background = element_rect(fill = "grey80",colour = "grey80")) + 
+     lims(x=c(0,max(routes$distance))) +
+     scale_fill_gradient(low = "yellow", high = "red", na.value = NA,limits=c(0,max(routes$speed)+5)) +
+     labs(x='Distance (mi)', y='Speed (mph)')
+   p4 <- routes2 %>%
+     ggplot(aes(x=distance, y=altitude)) + 
+     geom_hline(aes(yintercept=0),lty=1, alpha=.5) + 
+     geom_hline(aes(yintercept=max(routes$altitude)),lty=1, alpha=.5) + 
+     geom_hline(aes(yintercept=mean(routes$altitude)),lty=2, alpha=.5) +
+     geom_line() + 
+     geom_point(data=routes2 %>% filter(distance==max(distance)),aes(fill=speed),shape=21,color='red') +
+     theme_bw() + 
+     theme(panel.grid = element_blank(),
+           legend.position = 'none',
+           plot.background = element_rect(fill = "grey70",colour = "grey70"),
+           panel.background = element_rect(fill = "grey80",colour = "grey80")) +
+     lims(x=c(0,max(routes$distance))) +
+     scale_fill_gradient(low = "yellow", high = "red", na.value = NA,limits=c(0,max(routes$speed)+5)) +
+     labs(x='Distance (mi)', y=TeX('$\\Delta$ altitude (ft)'))
+   pp1 <- plot_grid(p2,plot_grid(p3,p4,ncol=2),ncol=1, rel_heights = c(4,1))
+  ggsave(plot=pp1, filename=file.path('figs',paste('route_',measure,'.png',sep='')),width=8,height=10.35,units='in')
+}
+system("cd figs; rm route.gif; convert -delay 2 $(ls -1 | sort -V) route.gif; rm *.png; cd ..")
+````
